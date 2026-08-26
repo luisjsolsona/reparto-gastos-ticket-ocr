@@ -31,21 +31,31 @@ columnas de precio.
 Para usarlo: abre el `.html` directamente en el navegador (doble clic, o
 súbelo a cualquier hosting estático).
 
-## Backend (opcional): OCR estructurado con Donut
+## Backend (opcional): OCR con PaddleOCR
 
-`backend/` monta un microservicio en Docker con
-[Donut](https://huggingface.co/naver-clova-ix/donut-base-finetuned-cord-v2)
-(`naver-clova-ix/donut-base-finetuned-cord-v2`), un modelo gratuito de
-Hugging Face entrenado específicamente en tickets de compra. A diferencia de
-un OCR clásico + expresiones regulares, Donut devuelve directamente un JSON
-estructurado con las líneas del ticket (nombre, cantidad, precio), sin
-necesidad de parsear texto plano.
+Se probó primero [Donut](https://huggingface.co/naver-clova-ix/donut-base-finetuned-cord-v2)
+(modelo end-to-end que devuelve JSON estructurado), pero en tickets españoles
+con varias columnas de precio mezclaba filas e inventaba cantidades y
+precios — peor que un OCR clásico. Se sustituyó por
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), que solo hace lo que
+tiene que hacer (detectar y leer texto) con bastante más precisión que
+Tesseract.js, especialmente en fotos giradas, con brillos o en ángulo.
+
+`backend/app.py` expone un endpoint que:
+
+1. Detecta cada fragmento de texto de la imagen con PaddleOCR
+2. Agrupa los fragmentos que están a la misma altura (misma fila de la
+   tabla del ticket) y los ordena de izquierda a derecha, reconstruyendo
+   líneas como `2 * VERDEJO 1.80€ 3.60€`
+3. Devuelve ese texto reconstruido, listo para pasarlo por las mismas
+   reglas de interpretación (cantidad · producto · precio) que ya usa el
+   frontend con Tesseract.js
 
 ### Requisitos
 
 - Docker y Docker Compose
-- ~2 GB libres para el modelo y las dependencias (se descarga la primera vez)
-- CPU es suficiente para uso personal; con GPU la respuesta es más rápida
+- CPU es suficiente para uso personal (PaddleOCR es más ligero que un
+  modelo de visión tipo Donut)
 
 ### Levantarlo
 
@@ -55,7 +65,8 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
-La primera vez tardará en descargar el modelo (~800 MB). Cuando en los logs
+La primera vez descarga los modelos de detección/reconocimiento/orientación
+de PaddleOCR (unos pocos MB, mucho menos que Donut). Cuando en los logs
 aparezca `Uvicorn running on http://0.0.0.0:8000`, el servicio está listo en
 el puerto `8010` del host.
 
@@ -65,28 +76,23 @@ el puerto `8010` del host.
 curl -X POST -F "file=@/ruta/a/tu/ticket.jpg" http://localhost:8010/ocr
 ```
 
-Devuelve algo así (estructura del dataset original, en inglés/campos cortos):
+Devuelve:
 
 ```json
 {
-  "raw": {
-    "menu": [
-      {"nm": "AGUA FUENTE LIVIANA", "cnt": "3", "price": "10,50"},
-      ...
-    ],
-    "total": {"total_price": "215,28"}
-  }
+  "text": "3 Agua Fuente Liviana 10,50 €\n1 Free Damm Limón 1/3 3,20 €\n...",
+  "raw_lines": ["3 Agua Fuente Liviana 10,50 €", "..."]
 }
 ```
 
+El campo `text` es el que se pasaría a la misma lógica de parseo
+(`preprocessLines` / `parseLineToItem`) que ya usa `frontend/Repartimos-gastos-ticket.html`.
+
 ### Estado
 
-Este backend es **experimental**: el modelo está entrenado sobre tickets de
-tiendas (dataset CORD), no específicamente sobre tickets de hostelería
-española, así que su precisión real en este caso de uso todavía se está
-validando. El frontend, de momento, sigue funcionando de forma autónoma con
-Tesseract.js; la idea es que hable con este backend en cuanto se confirme que
-mejora los resultados de forma consistente.
+Pendiente de validar con los tickets reales de prueba y, si mejora de forma
+consistente sobre Tesseract.js, conectar el frontend a este endpoint en vez
+de hacer el OCR en el navegador.
 
 ## Autor
 

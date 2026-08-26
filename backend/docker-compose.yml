@@ -5,5 +5,5 @@ services:
     ports:
       - "8010:8000"
     volumes:
-      - ./model_cache:/root/.cache/huggingface
+      - ./model_cache:/root/.paddleocr
     restart: unless-stopped

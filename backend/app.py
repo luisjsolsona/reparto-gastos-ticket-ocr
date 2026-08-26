@@ -11,12 +11,13 @@ app = FastAPI(title="Ticket OCR (PaddleOCR)")
 ocr_engine = PaddleOCR(use_angle_cls=True, lang="es", show_log=False)
 
 
-def group_into_lines(pairs, y_tol_ratio=0.6):
+def group_into_lines(pairs, y_tol_ratio=0.5):
     """PaddleOCR detecta texto por cajas sueltas, no por filas. Esto agrupa
     las cajas que están a la misma altura (misma fila de la tabla del
     ticket) y las ordena de izquierda a derecha, para reconstruir una línea
     de texto como '2 * VERDEJO 1.80€ 3.60€' en vez de tres fragmentos
-    sueltos."""
+    sueltos. Compara solo contra la última línea creada (no contra todas)
+    para no mezclar filas que no son vecinas."""
     items = []
     for box, (text, conf) in pairs:
         ys = [p[1] for p in box]
@@ -32,18 +33,15 @@ def group_into_lines(pairs, y_tol_ratio=0.6):
 
     lines = []
     for it in items:
-        placed = False
-        for line in lines:
-            avg_y = sum(w["y"] for w in line) / len(line)
-            avg_h = sum(w["h"] for w in line) / len(line)
-            if abs(it["y"] - avg_y) < avg_h * y_tol_ratio:
-                line.append(it)
-                placed = True
-                break
-        if not placed:
-            lines.append([it])
+        if lines:
+            last = lines[-1]
+            last_y = sum(w["y"] for w in last) / len(last)
+            last_h = sum(w["h"] for w in last) / len(last)
+            if abs(it["y"] - last_y) < last_h * y_tol_ratio:
+                last.append(it)
+                continue
+        lines.append([it])
 
-    lines.sort(key=lambda line: sum(w["y"] for w in line) / len(line))
     text_lines = []
     for line in lines:
         line.sort(key=lambda w: w["x"])

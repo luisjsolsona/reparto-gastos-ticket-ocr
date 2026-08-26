@@ -386,8 +386,8 @@ function preprocessLines(rawText){
   // une una línea de precio suelto con la línea anterior si a esa le faltaba el precio
   const merged = [];
   lines.forEach(line=>{
-    const isPriceOnly = /^\d{1,4}[.,]\d{2}\s*€?$/.test(line);
-    const prevHasPrice = merged.length>0 && /(\d{1,4}[.,]\d{2})\s*€?\s*$/.test(merged[merged.length-1]);
+    const isPriceOnly = /^\d{1,4}[.,]\d{2}\s*[€@]?$/.test(line);
+    const prevHasPrice = merged.length>0 && /(\d{1,4}[.,]\d{2})\s*[€@]?\s*$/.test(merged[merged.length-1]);
     if(isPriceOnly && merged.length>0 && !prevHasPrice){
       merged[merged.length-1] += ' ' + line;
     } else {
@@ -415,7 +415,7 @@ function parseLineToItem(line){
   if(STOPWORDS.test(text)) return null;
 
   // trailing price like 12,34 o 12.34, con o sin €
-  const priceMatch = text.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/);
+  const priceMatch = text.match(/(\d{1,4}[.,]\d{2})\s*[€@]?\s*$/);
   if(!priceMatch) return null;
   const price = parseFloat(priceMatch[1].replace(',', '.'));
   if(!(price > 0) || price > 2000) return null;
@@ -423,7 +423,7 @@ function parseLineToItem(line){
   let rest = text.slice(0, priceMatch.index).trim();
   // quita cualquier otro precio pegado antes (tickets con columnas Precio unidad + Total línea)
   let stray;
-  while((stray = rest.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/))){
+  while((stray = rest.match(/(\d{1,4}[.,]\d{2})\s*[€@]?\s*$/))){
     rest = rest.slice(0, stray.index).trim();
   }
 
@@ -452,7 +452,7 @@ function extractTicketTotal(rawText){
   let best = null;
   lines.forEach(l=>{
     if(/total/i.test(l)){
-      const m = l.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/);
+      const m = l.match(/(\d{1,4}[.,]\d{2})\s*[€@]?\s*$/);
       if(m){
         const val = parseFloat(m[1].replace(',', '.'));
         if(val > 0 && (best === null || val > best)) best = val;

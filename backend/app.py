@@ -1,11 +1,22 @@
 import io
 
 from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import numpy as np
 from paddleocr import PaddleOCR
 
 app = FastAPI(title="Ticket OCR (PaddleOCR)")
+
+# Permite que el frontend (servido desde otro origen: GitHub Pages, mistikedu.com,
+# o abierto como archivo local) pueda llamar a este backend desde el navegador.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # 'es' cubre el alfabeto latino (español incluido) en los modelos de PaddleOCR.
 # det_limit_side_len sube el límite de resolución interno del detector: por

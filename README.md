@@ -90,9 +90,20 @@ El campo `text` es el que se pasaría a la misma lógica de parseo
 
 ### Estado
 
-Pendiente de validar con los tickets reales de prueba y, si mejora de forma
-consistente sobre Tesseract.js, conectar el frontend a este endpoint en vez
-de hacer el OCR en el navegador.
+Validado con dos tickets reales de restaurante: mejora notable respecto a
+Tesseract.js, especialmente en tickets con columnas de precio (Precio
+unidad + Total línea), aunque el ajuste fino de resolución/detección puede
+seguir necesitando algún retoque según el ticket.
+
+### Conectar el frontend
+
+`frontend/Repartimos-gastos-ticket.html` tiene un campo "Backend OCR
+(opcional)" donde se pega la URL del endpoint (por ejemplo
+`http://192.168.0.100:8010/ocr` en tu red local). Si el campo está relleno,
+el escaneo intenta primero ese servidor; si no responde (apagado, fuera de
+la red local, CORS bloqueado, etc.), cae automáticamente a Tesseract.js en
+el navegador sin que el usuario tenga que hacer nada. Si se deja vacío,
+siempre usa Tesseract.js.
 
 ## Autor
 

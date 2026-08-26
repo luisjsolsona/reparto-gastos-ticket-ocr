@@ -288,6 +288,12 @@
       Sustituye la lista de productos por lo que lea en la foto ·
       <a href="#" onclick="event.preventDefault(); showReview([]);" style="color:var(--ink);font-weight:700;">o añade productos a mano</a>
     </div>
+    <div class="upload-sub" style="text-align:left;margin-top:8px;">
+      Backend OCR (opcional, más preciso que leerlo en el navegador):
+      <input type="text" id="backendUrl" value="http://192.168.0.100:8010/ocr"
+        style="width:100%;box-sizing:border-box;font-family:inherit;font-size:11px;padding:5px 7px;border:1px solid var(--line);border-radius:5px;margin-top:4px;">
+      <span style="display:block;margin-top:3px;">Vacío = leer siempre en el navegador. Si el servidor no responde, se usa el navegador como respaldo automáticamente.</span>
+    </div>
     <div class="ocr-status" id="ocrStatus">
       <span id="ocrStatusText">Leyendo ticket...</span>
       <div class="progress-bar"><div class="progress-fill" id="ocrProgress"></div></div>
@@ -622,45 +628,82 @@ function getCroppedBlob(){
   });
 }
 
+async function tesseractFallback(blob){
+  const worker = await Tesseract.createWorker('spa', 1, {
+    logger: m=>{
+      if(m.status === 'recognizing text'){
+        setOcrStatus('Reconociendo texto (navegador)...', Math.round(m.progress*100));
+      } else if(m.status){
+        setOcrStatus(m.status + '...', Math.round((m.progress||0)*100));
+      }
+    }
+  });
+
+  await worker.setParameters({ tessedit_pageseg_mode: '6' });
+  const pass1 = await worker.recognize(blob);
+  let candidates = collectCandidates(pass1.data.text);
+  let bestText = pass1.data.text;
+
+  if(candidates.length < 3){
+    setOcrStatus('Pocas líneas detectadas, probando otro modo...', 55);
+    await worker.setParameters({ tessedit_pageseg_mode: '3' });
+    const pass2 = await worker.recognize(blob);
+    const candidates2 = collectCandidates(pass2.data.text);
+    const seen = new Set(candidates.map(c => c.name.toLowerCase()+'|'+c.price.toFixed(2)));
+    candidates2.forEach(c=>{
+      const key = c.name.toLowerCase()+'|'+c.price.toFixed(2);
+      if(!seen.has(key)){ candidates.push(c); seen.add(key); }
+    });
+    if(pass2.data.text.length > bestText.length) bestText = pass2.data.text;
+  }
+
+  await worker.terminate();
+  return { text: bestText, candidates };
+}
+
 async function runOcrOnCrop(){
   document.getElementById('cropPanel').classList.remove('show');
   setOcrStatus('Preparando imagen...', 5);
+
+  let blob;
   try{
-    const blob = await getCroppedBlob();
-    setOcrStatus('Leyendo ticket...', 10);
-    const worker = await Tesseract.createWorker('spa', 1, {
-      logger: m=>{
-        if(m.status === 'recognizing text'){
-          setOcrStatus('Reconociendo texto...', Math.round(m.progress*100));
-        } else if(m.status){
-          setOcrStatus(m.status + '...', Math.round((m.progress||0)*100));
-        }
+    blob = await getCroppedBlob();
+  }catch(e){
+    setOcrStatus('No se pudo preparar la imagen.', 0);
+    showReview([]);
+    document.getElementById('ticketFile').value = '';
+    return;
+  }
+
+  const backendUrl = (document.getElementById('backendUrl').value || '').trim();
+  let text = null;
+  let candidates = null;
+
+  if(backendUrl){
+    try{
+      setOcrStatus('Leyendo ticket (servidor)...', 15);
+      const form = new FormData();
+      form.append('file', blob, 'ticket.png');
+      const resp = await fetch(backendUrl, { method: 'POST', body: form });
+      if(resp.ok){
+        const data = await resp.json();
+        text = data.text || '';
       }
-    });
-
-    // primer intento: bloque uniforme (bueno para una sola columna de importes)
-    await worker.setParameters({ tessedit_pageseg_mode: '6' });
-    const pass1 = await worker.recognize(blob);
-    let candidates = collectCandidates(pass1.data.text);
-    let bestText = pass1.data.text;
-
-    // si salen pocas líneas, puede ser un ticket con columnas (Precio + Total):
-    // se reintenta con modo automático y se combinan los resultados sin duplicar
-    if(candidates.length < 3){
-      setOcrStatus('Pocas líneas detectadas, probando otro modo...', 55);
-      await worker.setParameters({ tessedit_pageseg_mode: '3' });
-      const pass2 = await worker.recognize(blob);
-      const candidates2 = collectCandidates(pass2.data.text);
-      const seen = new Set(candidates.map(c => c.name.toLowerCase()+'|'+c.price.toFixed(2)));
-      candidates2.forEach(c=>{
-        const key = c.name.toLowerCase()+'|'+c.price.toFixed(2);
-        if(!seen.has(key)){ candidates.push(c); seen.add(key); }
-      });
-      if(pass2.data.text.length > bestText.length) bestText = pass2.data.text;
+    }catch(e){
+      text = null; // sin conexión al backend: caemos al navegador
     }
+  }
 
-    await worker.terminate();
-    pendingDetectedTotal = extractTicketTotal(bestText);
+  try{
+    if(text === null){
+      if(backendUrl) setOcrStatus('Servidor no disponible, leyendo en el navegador...', 20);
+      const fallback = await tesseractFallback(blob);
+      text = fallback.text;
+      candidates = fallback.candidates;
+    } else {
+      candidates = collectCandidates(text);
+    }
+    pendingDetectedTotal = extractTicketTotal(text);
     setOcrStatus('Listo — revisa antes de usar', 100);
     showReview(candidates);
   }catch(err){

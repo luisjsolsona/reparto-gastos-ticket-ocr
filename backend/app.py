@@ -1,4 +1,5 @@
 import io
+import re
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,41 +35,75 @@ ocr_engine = PaddleOCR(
 )
 
 
+# Un fragmento que es SOLO un número con decimales (con o sin símbolo de
+# moneda pegado, que a veces el OCR lee mal como @, & o £) se trata como
+# "columna de precio", no como parte del nombre del producto.
+PRICE_TOKEN_RE = re.compile(r'^\d{1,4}[.,]\d{1,2}\s*[€@&£]?$')
+
+
 def group_into_lines(pairs, y_tol_ratio=0.5):
-    """PaddleOCR detecta texto por cajas sueltas, no por filas. Esto agrupa
-    las cajas que están a la misma altura (misma fila de la tabla del
-    ticket) y las ordena de izquierda a derecha, para reconstruir una línea
-    de texto como '2 * VERDEJO 1.80€ 3.60€' en vez de tres fragmentos
-    sueltos. Compara solo contra la última línea creada (no contra todas)
-    para no mezclar filas que no son vecinas."""
+    """PaddleOCR detecta texto por cajas sueltas, no por filas, y en tickets
+    reales la columna de números no siempre está perfectamente alineada en
+    altura con la columna del nombre del producto (un pequeño desajuste
+    vertical entre columnas). Por eso el texto se trata en dos pasos:
+
+    1) Los fragmentos que NO son un precio (el nombre, "2 * VERDEJO", etc.)
+       se agrupan en filas por altura, comparando solo contra la última fila
+       creada, para reconstruir el orden de lectura de la tabla.
+    2) Cada fragmento que SÍ es un precio se asigna a la fila de producto
+       más cercana en altura (no a una banda fija), lo que tolera ese
+       pequeño desajuste vertical entre columnas.
+    """
     items = []
     for box, (text, conf) in pairs:
+        raw_text = text.strip()
+        if not raw_text:
+            continue
         ys = [p[1] for p in box]
         xs = [p[0] for p in box]
         items.append({
-            "text": text,
+            "text": raw_text,
             "y": sum(ys) / len(ys),
             "h": max(ys) - min(ys) or 1,
             "x": min(xs),
         })
 
-    items.sort(key=lambda i: i["y"])
+    name_items = [it for it in items if not PRICE_TOKEN_RE.match(it["text"])]
+    price_items = [it for it in items if PRICE_TOKEN_RE.match(it["text"])]
+    name_items.sort(key=lambda i: i["y"])
 
-    lines = []
-    for it in items:
-        if lines:
-            last = lines[-1]
+    rows = []
+    for it in name_items:
+        if rows:
+            last = rows[-1]
             last_y = sum(w["y"] for w in last) / len(last)
             last_h = sum(w["h"] for w in last) / len(last)
             if abs(it["y"] - last_y) < last_h * y_tol_ratio:
                 last.append(it)
                 continue
-        lines.append([it])
+        rows.append([it])
+
+    row_objs = [
+        {"words": r, "prices": [], "y": sum(w["y"] for w in r) / len(r)}
+        for r in rows
+    ]
+
+    for pit in price_items:
+        if row_objs:
+            best_row = min(row_objs, key=lambda r: abs(pit["y"] - r["y"]))
+            best_row["prices"].append(pit)
+        else:
+            row_objs.append({"words": [], "prices": [pit], "y": pit["y"]})
+
+    row_objs.sort(key=lambda r: r["y"])
 
     text_lines = []
-    for line in lines:
-        line.sort(key=lambda w: w["x"])
-        text_lines.append(" ".join(w["text"] for w in line))
+    for row in row_objs:
+        words_sorted = sorted(row["words"], key=lambda w: w["x"])
+        prices_sorted = sorted(row["prices"], key=lambda w: w["x"])
+        parts = [w["text"] for w in words_sorted] + [w["text"] for w in prices_sorted]
+        if parts:
+            text_lines.append(" ".join(parts))
     return text_lines
 
 

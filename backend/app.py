@@ -52,7 +52,7 @@ ocr_engine = PaddleOCR(
 # la tabla (filas y columnas) en vez de que tengamos que reconstruirla a
 # mano por posición. Cuando detecta una tabla, suele resolver justo el
 # problema de alineación entre la columna del nombre y la del precio.
-table_engine = PPStructure(table=True, ocr=True, show_log=False, lang="es")
+table_engine = PPStructure(table=True, ocr=True, layout=False, show_log=False, lang="es")
 
 
 def table_html_to_lines(html):

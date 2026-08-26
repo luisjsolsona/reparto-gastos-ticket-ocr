@@ -52,7 +52,17 @@ ocr_engine = PaddleOCR(
 # la tabla (filas y columnas) en vez de que tengamos que reconstruirla a
 # mano por posición. Cuando detecta una tabla, suele resolver justo el
 # problema de alineación entre la columna del nombre y la del precio.
-table_engine = PPStructure(table=True, ocr=True, layout=False, show_log=False, lang="es")
+# PP-StructureV3: intento de reconocer la ESTRUCTURA de la tabla (filas y
+# columnas) en vez de reconstruirla a mano por posición. LIMITACIÓN CONOCIDA:
+# el detector de layout de esta versión de la librería solo admite inglés o
+# chino — con español (mapeado internamente a "latin") falla al iniciar. Se
+# protege con try/except: si no se puede inicializar, el servicio sigue
+# funcionando con el método de texto suelto + agrupación por posición.
+try:
+    table_engine = PPStructure(table=True, ocr=True, layout=False, show_log=False, lang="es")
+except Exception as e:
+    print(f"No se pudo inicializar PP-Structure (se usará solo el metodo de texto suelto): {e}")
+    table_engine = None
 
 
 def table_html_to_lines(html):
@@ -153,15 +163,16 @@ async def ocr(file: UploadFile = File(...)):
 
     # 1) intenta reconocer la tabla completa (filas/columnas) con PP-Structure
     table_lines = []
-    try:
-        structure_result = table_engine(arr)
-        for region in structure_result:
-            if region.get("type") == "table":
-                html = (region.get("res") or {}).get("html", "")
-                if html:
-                    table_lines.extend(table_html_to_lines(html))
-    except Exception:
-        table_lines = []
+    if table_engine is not None:
+        try:
+            structure_result = table_engine(arr)
+            for region in structure_result:
+                if region.get("type") == "table":
+                    html = (region.get("res") or {}).get("html", "")
+                    if html:
+                        table_lines.extend(table_html_to_lines(html))
+        except Exception:
+            table_lines = []
 
     if table_lines:
         return {"text": "\n".join(table_lines), "raw_lines": table_lines, "engine": "table"}

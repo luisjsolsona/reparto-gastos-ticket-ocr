@@ -75,6 +75,19 @@ de PaddleOCR (unos pocos MB, mucho menos que Donut). Cuando en los logs
 aparezca `Uvicorn running on http://0.0.0.0:8000`, el servicio está listo en
 el puerto `8010` del host.
 
+### Motor de reconocimiento
+
+El endpoint `/ocr` prueba primero **PP-StructureV3** (`table=True`), que
+intenta reconocer la tabla del ticket como filas y columnas reales en vez de
+que tengamos que reconstruirlas por posición. Si detecta una tabla, convierte
+cada fila en una línea de texto (`"engine": "table"` en la respuesta). Si no
+detecta ninguna tabla, cae automáticamente al método anterior: OCR de texto
+suelto + reconstrucción de filas por posición (`"engine": "text"`).
+
+PP-Structure descarga modelos adicionales de detección de layout y
+reconocimiento de tablas la primera vez que arranca (más peso y tiempo de
+build que la versión anterior, que solo usaba `PaddleOCR.ocr()`).
+
 ### Probarlo
 
 ```bash
@@ -86,7 +99,8 @@ Devuelve:
 ```json
 {
   "text": "3 Agua Fuente Liviana 10,50 €\n1 Free Damm Limón 1/3 3,20 €\n...",
-  "raw_lines": ["3 Agua Fuente Liviana 10,50 €", "..."]
+  "raw_lines": ["3 Agua Fuente Liviana 10,50 €", "..."],
+  "engine": "table"
 }
 ```
 

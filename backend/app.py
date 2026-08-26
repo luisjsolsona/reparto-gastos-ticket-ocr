@@ -6,8 +6,9 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from PIL import Image
+from bs4 import BeautifulSoup
 import numpy as np
-from paddleocr import PaddleOCR
+from paddleocr import PaddleOCR, PPStructure
 
 app = FastAPI(title="Ticket OCR (PaddleOCR)")
 
@@ -46,6 +47,25 @@ ocr_engine = PaddleOCR(
     det_limit_side_len=2500,
     det_db_unclip_ratio=1.6,
 )
+
+# PP-StructureV3: además de leer el texto, intenta reconocer la ESTRUCTURA de
+# la tabla (filas y columnas) en vez de que tengamos que reconstruirla a
+# mano por posición. Cuando detecta una tabla, suele resolver justo el
+# problema de alineación entre la columna del nombre y la del precio.
+table_engine = PPStructure(table=True, ocr=True, show_log=False, lang="es")
+
+
+def table_html_to_lines(html):
+    """Convierte el HTML de tabla que devuelve PP-Structure en líneas de
+    texto (una por fila), uniendo el contenido de las celdas en orden."""
+    soup = BeautifulSoup(html, "html.parser")
+    lines = []
+    for tr in soup.find_all("tr"):
+        cells = [td.get_text(" ", strip=True) for td in tr.find_all(["td", "th"])]
+        cells = [c for c in cells if c]
+        if cells:
+            lines.append(" ".join(cells))
+    return lines
 
 
 # Un fragmento que es SOLO un número con decimales (con o sin símbolo de
@@ -131,9 +151,26 @@ async def ocr(file: UploadFile = File(...)):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     arr = np.array(image)
 
+    # 1) intenta reconocer la tabla completa (filas/columnas) con PP-Structure
+    table_lines = []
+    try:
+        structure_result = table_engine(arr)
+        for region in structure_result:
+            if region.get("type") == "table":
+                html = (region.get("res") or {}).get("html", "")
+                if html:
+                    table_lines.extend(table_html_to_lines(html))
+    except Exception:
+        table_lines = []
+
+    if table_lines:
+        return {"text": "\n".join(table_lines), "raw_lines": table_lines, "engine": "table"}
+
+    # 2) si no se detectó ninguna tabla, cae al OCR de texto suelto +
+    # reconstrucción de filas por posición (el método anterior)
     result = ocr_engine.ocr(arr, cls=True)
     boxes_texts = result[0] if result and result[0] else []
     pairs = [(bt[0], bt[1]) for bt in boxes_texts]
 
     lines = group_into_lines(pairs)
-    return {"text": "\n".join(lines), "raw_lines": lines}
+    return {"text": "\n".join(lines), "raw_lines": lines, "engine": "text"}

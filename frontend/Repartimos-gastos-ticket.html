@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Repartimos-gastos-ticket</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+
+  :root{
+    --paper:#f2ecd8;
+    --paper-dark:#e6ddc2;
+    --ink:#2a241c;
+    --ink-soft:#6b6252;
+    --red:#c1402c;
+    --red-dark:#9c3021;
+    --green:#4c7a5a;
+    --line:#c9bfa2;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background: radial-gradient(ellipse at top, #3d2b1f 0%, #241812 60%, #17110c 100%);
+    display:flex;
+    justify-content:center;
+    padding:32px 12px 60px;
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--ink);
+  }
+  .receipt{
+    width:100%;
+    max-width:420px;
+    background:var(--paper);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    position:relative;
+    padding:28px 22px 34px;
+  }
+  .receipt::before, .receipt::after{
+    content:"";
+    position:absolute;
+    left:0; right:0; height:14px;
+    background:
+      linear-gradient(135deg, var(--paper) 25%, transparent 25%) -6px 0,
+      linear-gradient(-135deg, var(--paper) 25%, transparent 25%) -6px 0;
+    background-size:12px 14px;
+    background-repeat:repeat-x;
+  }
+  .receipt::before{ top:-13px; }
+  .receipt::after{ bottom:-13px; transform:rotate(180deg); }
+
+  .clip{
+    position:absolute;
+    top:-18px; left:24px;
+    width:120px; height:34px;
+    background:var(--red);
+    border-radius:0 0 14px 14px;
+    transform:rotate(-6deg);
+    box-shadow:0 6px 10px rgba(0,0,0,0.35);
+  }
+
+  h1.title{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:15px;
+    letter-spacing:0.14em;
+    text-align:center;
+    margin:18px 0 2px;
+  }
+  .meta{ text-align:center; font-size:11px; color:var(--ink-soft); margin-bottom:14px; }
+  .divider{ border:none; border-top:1.5px dashed var(--line); margin:14px 0; }
+
+  .section-label{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--red-dark);
+    margin-bottom:8px;
+  }
+
+  /* upload / ocr */
+  .upload-box{
+    border:1.5px dashed var(--line);
+    border-radius:8px;
+    padding:12px;
+    text-align:center;
+    background:var(--paper-dark);
+  }
+  .upload-box input[type=file]{ display:none; }
+  .upload-label{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:12px;
+    background:var(--ink);
+    color:var(--paper);
+    border:none;
+    border-radius:6px;
+    padding:8px 16px;
+    cursor:pointer;
+    display:inline-block;
+  }
+  .upload-sub{ font-size:10.5px; color:var(--ink-soft); margin-top:6px; }
+  .ocr-status{
+    font-size:11.5px; color:var(--ink-soft); margin-top:10px;
+    display:none;
+  }
+  .ocr-status.show{ display:block; }
+  .progress-bar{
+    height:6px; background:#fff; border-radius:99px; overflow:hidden;
+    margin-top:6px; border:1px solid var(--line);
+  }
+  .progress-fill{ height:100%; width:0%; background:var(--green); transition:width .15s; }
+
+  .review-panel{ display:none; margin-top:12px; }
+  .review-panel.show{ display:block; }
+  .crop-panel{ display:none; margin-top:12px; }
+  .crop-panel.show{ display:block; }
+  .crop-wrap{
+    display:flex; justify-content:center;
+    background:#111; border-radius:8px; padding:4px;
+    touch-action:none;
+  }
+  #cropCanvas{ max-width:100%; border-radius:4px; cursor:crosshair; }
+  .review-row{
+    display:flex; gap:6px; align-items:center; margin-bottom:6px;
+  }
+  .review-row input[type=number]{ width:44px; font-family:inherit; font-size:11px; padding:5px; border:1px solid var(--line); border-radius:5px; }
+  .review-row input[type=text]{ flex:1; font-family:inherit; font-size:11px; padding:5px 7px; border:1px solid var(--line); border-radius:5px; }
+  .review-row input[type=number].price{ width:58px; }
+  .review-row .rm-row{ background:none; border:none; color:var(--red-dark); cursor:pointer; font-size:14px; padding:0 2px; }
+  .review-actions{ display:flex; gap:8px; margin-top:8px; }
+  .review-actions button{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:11.5px;
+    border:none; border-radius:6px; padding:8px 12px; cursor:pointer;
+  }
+  .btn-confirm{ background:var(--green); color:#fff; flex:1; }
+  .btn-addrow{ background:#fff; border:1px solid var(--line) !important; color:var(--ink); }
+  .btn-cancel{ background:none; color:var(--ink-soft); border:1px solid var(--line) !important; }
+
+  /* people */
+  .people-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
+  .person-chip{
+    display:flex; align-items:center; gap:6px;
+    background:var(--paper-dark);
+    border:2px solid transparent;
+    border-radius:999px;
+    padding:5px 10px 5px 8px;
+    font-size:12px;
+    cursor:pointer;
+    transition:border-color .12s, transform .12s;
+  }
+  .person-chip.active{
+    border-color:var(--ink);
+    transform:translateY(-1px);
+    box-shadow:0 3px 0 rgba(0,0,0,0.15);
+  }
+  .dot{ width:9px;height:9px;border-radius:50%; flex:none; }
+  .person-chip .rm{
+    background:none;border:none;color:var(--ink-soft);
+    cursor:pointer;font-size:13px;line-height:1;padding:0 0 0 3px;
+    font-family:inherit;
+  }
+  .add-person{ display:flex; gap:6px; margin-top:8px; }
+  .add-person input{
+    flex:1; font-family:inherit; font-size:12px; padding:7px 9px;
+    border:1px solid var(--line); background:#fff; border-radius:6px;
+  }
+  .add-person button{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:12px;
+    background:var(--ink); color:var(--paper); border:none; border-radius:6px;
+    padding:0 14px; cursor:pointer;
+  }
+  .active-hint{ font-size:10.5px; color:var(--ink-soft); margin-top:6px; min-height:14px; }
+  .active-hint b{ color:var(--ink); }
+
+  .item{ padding:9px 0; border-bottom:1px dotted var(--line); }
+  .item-row{
+    display:flex; justify-content:space-between; align-items:baseline;
+    cursor:pointer; gap:10px; user-select:none;
+  }
+  .item.complete .item-row{ cursor:default; }
+  .item-name{ font-size:12.5px; line-height:1.3; }
+  .item-name .uds{ color:var(--ink-soft); margin-right:5px; }
+  .item.complete .item-name, .item.complete .item-price{
+    text-decoration: line-through;
+    text-decoration-color: var(--red);
+    text-decoration-thickness: 1.5px;
+    opacity:0.5;
+  }
+  .item-price{ font-size:12.5px; font-weight:600; white-space:nowrap; }
+
+  .units-row{ display:flex; align-items:center; gap:5px; margin-top:6px; flex-wrap:wrap; }
+  .unit-dot{
+    width:16px;height:16px; border-radius:50%;
+    border:1.5px solid var(--line);
+    background:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-size:9px; font-weight:700; color:#fff;
+    cursor:pointer;
+    flex:none;
+  }
+  .unit-dot.empty:hover{ border-color:var(--ink); }
+  .unit-dot.all{
+    background: repeating-conic-gradient(var(--green) 0% 25%, #3a6ea5 0% 50%) 0/8px 8px;
+    border-color:var(--green);
+    font-size:8px;
+  }
+  .remaining-tag{ font-size:10px; color:var(--ink-soft); margin-left:2px; }
+  .complete-tag{ font-size:10px; color:var(--red-dark); font-weight:600; margin-left:2px; }
+  .empty-state{ font-size:11.5px; color:var(--ink-soft); padding:6px 0; }
+
+  .share-btn{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:9.5px; font-weight:700;
+    background:#fff; border:1px solid var(--green);
+    border-radius:999px; padding:3px 8px;
+    cursor:pointer; color:var(--green);
+    white-space:nowrap;
+  }
+  .share-btn:hover{ background:var(--green); color:#fff; }
+  .share-btn:disabled{ opacity:0.4; cursor:default; background:#fff; color:var(--ink-soft); border-color:var(--line); }
+
+  .edit-btn{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:11px; background:none; border:none; color:var(--ink-soft);
+    cursor:pointer; padding:0 2px; flex:none;
+  }
+  .edit-btn:hover{ color:var(--ink); }
+  .edit-form{
+    display:flex; gap:6px; align-items:center; margin-top:4px;
+  }
+  .edit-form input[type=number]{ width:44px; font-family:inherit; font-size:11px; padding:5px; border:1px solid var(--line); border-radius:5px; }
+  .edit-form input[type=number].price{ width:60px; }
+  .edit-form input[type=text]{ flex:1; font-family:inherit; font-size:11px; padding:5px 7px; border:1px solid var(--line); border-radius:5px; }
+  .edit-form button{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:10.5px;
+    border:none; border-radius:5px; padding:6px 9px; cursor:pointer; flex:none;
+  }
+  .edit-save{ background:var(--green); color:#fff; }
+  .edit-cancel{ background:none; border:1px solid var(--line) !important; color:var(--ink-soft); }
+
+  .header-row{ position:relative; display:flex; justify-content:center; }
+  .reset-btn{
+    position:absolute; right:0; top:2px;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:10px;
+    background:none; border:1px solid var(--line); color:var(--red-dark);
+    border-radius:6px; padding:5px 8px; cursor:pointer;
+  }
+  .reset-btn:hover{ background:var(--red); color:#fff; border-color:var(--red); }
+
+  .summary-row{ display:flex; justify-content:space-between; font-size:13px; margin:5px 0; }
+  .summary-row.total{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:16px;
+    margin-top:10px; padding-top:10px; border-top:1.5px dashed var(--line);
+  }
+  .dto-row{ display:flex; gap:6px; align-items:center; font-size:12px; margin:5px 0; }
+  .dto-row input{ width:48px; font-family:inherit; font-size:12px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; }
+
+  .per-person{ margin-top:10px; }
+  .pp-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:7px 0; border-bottom:1px dotted var(--line); font-size:13px;
+  }
+  .pp-name{ display:flex; align-items:center; gap:8px; }
+  .pp-amount{ font-weight:700; }
+
+  .footer-note{ text-align:center; font-size:10.5px; color:var(--ink-soft); margin-top:20px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<div class="receipt">
+  <div class="clip"></div>
+  <div class="header-row">
+    <h1 class="title">REPARTO DE CUENTA</h1>
+    <button class="reset-btn" onclick="resetAll()">⟲ Reiniciar</button>
+  </div>
+  <div class="meta" id="ticketMeta">Sin ticket cargado</div>
+  <hr class="divider">
+
+  <div class="section-label">Cargar ticket (foto)</div>
+  <div class="upload-box">
+    <label class="upload-label" for="ticketFile">Escanear ticket</label>
+    <input type="file" id="ticketFile" accept="image/*">
+    <div class="upload-sub">
+      Sustituye la lista de productos por lo que lea en la foto ·
+      <a href="#" onclick="event.preventDefault(); showReview([]);" style="color:var(--ink);font-weight:700;">o añade productos a mano</a>
+    </div>
+    <div class="ocr-status" id="ocrStatus">
+      <span id="ocrStatusText">Leyendo ticket...</span>
+      <div class="progress-bar"><div class="progress-fill" id="ocrProgress"></div></div>
+    </div>
+    <div class="crop-panel" id="cropPanel">
+      <div class="upload-sub" style="text-align:left;margin-bottom:6px;">Arrastra el recuadro para encuadrar solo el ticket (sin mesa ni fondo) — cuanto más ajustado, mejor lee:</div>
+      <div class="crop-wrap">
+        <canvas id="cropCanvas"></canvas>
+      </div>
+      <div class="review-actions">
+        <button class="btn-cancel" onclick="cancelCrop()">Cancelar</button>
+        <button class="btn-confirm" onclick="runOcrOnCrop()">Escanear recorte</button>
+      </div>
+    </div>
+    <div class="review-panel" id="reviewPanel">
+      <div class="upload-sub" style="text-align:left;margin-bottom:8px;">Revisa contra el ticket físico — a veces se salta o junta alguna línea. Corrige o añade con "+ Fila" (uds · producto · precio total de la línea):</div>
+      <div id="reviewRows"></div>
+      <div class="review-actions">
+        <button class="btn-addrow" onclick="addReviewRow()">+ Fila</button>
+        <button class="btn-cancel" onclick="cancelReview()">Cancelar</button>
+        <button class="btn-confirm" onclick="confirmReview()">Usar este ticket</button>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+  <div class="section-label">Comensales</div>
+  <div class="people-row" id="peopleRow"></div>
+  <div class="add-person">
+    <input id="newPersonName" type="text" placeholder="Nombre..." maxlength="16">
+    <button onclick="addPerson()">Añadir</button>
+  </div>
+  <div class="active-hint" id="activeHint"></div>
+
+  <hr class="divider">
+  <div class="section-label">Toca un producto para asignar una unidad al comensal activo</div>
+  <div id="itemsList"></div>
+
+  <hr class="divider">
+  <div class="section-label">Total del ticket</div>
+  <div class="summary-row"><span>Subtotal (antes dto.)</span><span id="sumBefore"></span></div>
+  <div class="dto-row">
+    <span>Descuento</span>
+    <input type="number" id="dtoPct" value="10" min="0" max="100" step="0.5" onchange="onDtoChange()">
+    <span>%</span>
+    <span id="sumDto" style="margin-left:auto;"></span>
+  </div>
+  <div class="summary-row total"><span>Total</span><span id="sumTotal"></span></div>
+
+  <div class="dto-row" style="margin-top:8px;">
+    <span>Total impreso en el ticket</span>
+    <input type="number" id="checkTotal" step="0.01" min="0" placeholder="0,00" oninput="renderSummary()" style="width:64px;margin-left:auto;">
+  </div>
+  <div id="totalMatchNote" style="font-size:11px; text-align:right; margin-top:2px;"></div>
+
+  <hr class="divider">
+  <div class="section-label">Quién paga qué</div>
+  <div class="per-person" id="perPerson"></div>
+
+  <div class="footer-note">Selecciona un comensal, toca el producto tantas veces como unidades le tocan. Toca un punto ya asignado para deshacerlo.</div>
+</div>
+
+<script>
+let ITEMS = [];
+let DISCOUNT = 0.10;
+const COLORS = ['#c1402c','#4c7a5a','#3a6ea5','#b8862c','#7a4c8a','#2a8a7c','#a5473a','#5c6b3a'];
+
+let people = [];
+let nextPersonId = 1;
+let activePersonId = null;
+let units = ITEMS.map(it => new Array(it.uds).fill(null)); // cada unidad: null | personId | 'ALL'
+let editingIdx = null;
+
+/* ---------- OCR ---------- */
+const STOPWORDS = /^\s*(total|subtotal|dto\.?|descuento|iva\b|base\b|cuota|factura|proforma|camarero|mesa\b|fecha|gracias|cif|nif|propina|cambio|efectivo|tarjeta|impuestos|visa|n[uú]mero de|ticket)/i;
+
+function preprocessLines(rawText){
+  let lines = rawText.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+
+  // descarta la línea de cabecera de la tabla (distintos formatos de ticket)
+  lines = lines.filter(l =>
+    !/^uds\.?\s*producto/i.test(l) &&
+    !/^producto\s*[:]?\s*precio/i.test(l) &&
+    !/^producto\s+importe/i.test(l) &&
+    !/^subtotal\s*[:]?\s*impuestos/i.test(l)
+  );
+  // si la cabecera quedó pegada al primer producto, la quitamos sin perder el resto de la línea
+  lines = lines.map(l => l
+    .replace(/^uds\.?\s*producto\s*/i, '')
+    .replace(/^producto\s*:?\s*/i, '')
+    .replace(/\bimporte\b/i, '')
+    .replace(/\bprecio\s*:?\s*/i, '')
+    .trim()
+  ).filter(l=>l.length>0);
+
+  // une una línea de precio suelto con la línea anterior si a esa le faltaba el precio
+  const merged = [];
+  lines.forEach(line=>{
+    const isPriceOnly = /^\d{1,4}[.,]\d{2}\s*€?$/.test(line);
+    const prevHasPrice = merged.length>0 && /(\d{1,4}[.,]\d{2})\s*€?\s*$/.test(merged[merged.length-1]);
+    if(isPriceOnly && merged.length>0 && !prevHasPrice){
+      merged[merged.length-1] += ' ' + line;
+    } else {
+      merged.push(line);
+    }
+  });
+
+  // une una línea que es solo la cantidad (ej. "3") con la línea siguiente (el nombre)
+  const merged2 = [];
+  for(let i=0;i<merged.length;i++){
+    const line = merged[i];
+    if(/^\d{1,2}$/.test(line) && i+1 < merged.length){
+      merged2.push(line + ' ' + merged[i+1]);
+      i++;
+    } else {
+      merged2.push(line);
+    }
+  }
+  return merged2;
+}
+
+function parseLineToItem(line){
+  let text = line.trim();
+  if(!text || text.length < 2) return null;
+  if(STOPWORDS.test(text)) return null;
+
+  // trailing price like 12,34 o 12.34, con o sin €
+  const priceMatch = text.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/);
+  if(!priceMatch) return null;
+  const price = parseFloat(priceMatch[1].replace(',', '.'));
+  if(!(price > 0) || price > 2000) return null;
+
+  let rest = text.slice(0, priceMatch.index).trim();
+  // quita cualquier otro precio pegado antes (tickets con columnas Precio unidad + Total línea)
+  let stray;
+  while((stray = rest.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/))){
+    rest = rest.slice(0, stray.index).trim();
+  }
+
+  let uds = 1;
+  // admite "3 Agua...", "2 * VERDEJO", "1x Pizza...", "2. Cafe..."
+  const udsMatch = rest.match(/^(\d{1,2})\s*(?:[\*xX.]\s*)?(.+)$/);
+  if(udsMatch && udsMatch[2].trim().length > 1){
+    uds = parseInt(udsMatch[1], 10);
+    rest = udsMatch[2].trim();
+  }
+  rest = rest.replace(/^[\*xX.\s]+/, '').replace(/[-–—:]+$/, '').trim();
+  if(rest.length < 2) return null;
+
+  return {name: rest, uds: uds || 1, price};
+}
+
+function setOcrStatus(text, pct){
+  const status = document.getElementById('ocrStatus');
+  status.classList.add('show');
+  document.getElementById('ocrStatusText').textContent = text;
+  document.getElementById('ocrProgress').style.width = (pct||0) + '%';
+}
+
+function extractTicketTotal(rawText){
+  const lines = (rawText || '').split('\n').map(l=>l.trim()).filter(Boolean);
+  let best = null;
+  lines.forEach(l=>{
+    if(/total/i.test(l)){
+      const m = l.match(/(\d{1,4}[.,]\d{2})\s*€?\s*$/);
+      if(m){
+        const val = parseFloat(m[1].replace(',', '.'));
+        if(val > 0 && (best === null || val > best)) best = val;
+      }
+    }
+  });
+  return best;
+}
+
+let pendingDetectedTotal = null;
+
+function preprocessCanvas(canvas){
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  // 1) gris + contraste
+  const contrast = 1.6;
+  const gray = new Float32Array(d.length/4);
+  let sum = 0;
+  for(let i=0, p=0; i<d.length; i+=4, p++){
+    const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+    let v = (g - 128) * contrast + 128;
+    v = Math.max(0, Math.min(255, v));
+    gray[p] = v;
+    sum += v;
+  }
+  // 2) binarizado con umbral automático simple (media - ajuste), bueno para tickets térmicos
+  const mean = sum / gray.length;
+  const threshold = mean * 0.92;
+  for(let p=0, i=0; p<gray.length; p++, i+=4){
+    const v = gray[p] > threshold ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = v;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+/* ---------- recorte previo al OCR ---------- */
+let cropState = null; // {img, naturalW, naturalH, dispW, dispH, rect:{x,y,w,h}, dragging, dragMode}
+
+function openCropper(file){
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = ()=>{
+    const maxW = 360;
+    const scale = Math.min(1, maxW / img.width);
+    const dispW = Math.round(img.width * scale);
+    const dispH = Math.round(img.height * scale);
+    const canvas = document.getElementById('cropCanvas');
+    canvas.width = dispW; canvas.height = dispH;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, dispW, dispH);
+    cropState = {
+      img, naturalW: img.width, naturalH: img.height,
+      dispW, dispH,
+      rect: {x: dispW*0.04, y: dispH*0.02, w: dispW*0.92, h: dispH*0.96},
+      dragMode: null
+    };
+    drawCropOverlay();
+    document.getElementById('cropPanel').classList.add('show');
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function drawCropOverlay(){
+  const canvas = document.getElementById('cropCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(cropState.img, 0, 0, cropState.dispW, cropState.dispH);
+  const r = cropState.rect;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, canvas.width, r.y); // arriba
+  ctx.fillRect(0, r.y + r.h, canvas.width, canvas.height - (r.y + r.h)); // abajo
+  ctx.fillRect(0, r.y, r.x, r.h); // izquierda
+  ctx.fillRect(r.x + r.w, r.y, canvas.width - (r.x + r.w), r.h); // derecha
+  ctx.strokeStyle = '#4c7a5a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(r.x, r.y, r.w, r.h);
+  const hs = 9;
+  ctx.fillStyle = '#4c7a5a';
+  [[r.x,r.y],[r.x+r.w,r.y],[r.x,r.y+r.h],[r.x+r.w,r.y+r.h]].forEach(([hx,hy])=>{
+    ctx.fillRect(hx-hs/2, hy-hs/2, hs, hs);
+  });
+  ctx.restore();
+}
+
+function cropPointerPos(canvas, ev){
+  const rect = canvas.getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+  const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {x:(clientX-rect.left)*scaleX, y:(clientY-rect.top)*scaleY};
+}
+
+function setupCropHandlers(){
+  const canvas = document.getElementById('cropCanvas');
+  const corner = 16;
+  function hitCorner(p, r){
+    if(Math.hypot(p.x-r.x, p.y-r.y) < corner) return 'tl';
+    if(Math.hypot(p.x-(r.x+r.w), p.y-r.y) < corner) return 'tr';
+    if(Math.hypot(p.x-r.x, p.y-(r.y+r.h)) < corner) return 'bl';
+    if(Math.hypot(p.x-(r.x+r.w), p.y-(r.y+r.h)) < corner) return 'br';
+    if(p.x>r.x && p.x<r.x+r.w && p.y>r.y && p.y<r.y+r.h) return 'move';
+    return null;
+  }
+  let start = null, startRect = null;
+  function down(ev){
+    if(!cropState) return;
+    const p = cropPointerPos(canvas, ev);
+    cropState.dragMode = hitCorner(p, cropState.rect);
+    start = p; startRect = {...cropState.rect};
+    ev.preventDefault();
+  }
+  function move(ev){
+    if(!cropState || !cropState.dragMode) return;
+    const p = cropPointerPos(canvas, ev);
+    const dx = p.x - start.x, dy = p.y - start.y;
+    let r = {...startRect};
+    if(cropState.dragMode === 'move'){
+      r.x = Math.max(0, Math.min(cropState.dispW - r.w, startRect.x + dx));
+      r.y = Math.max(0, Math.min(cropState.dispH - r.h, startRect.y + dy));
+    } else {
+      if(cropState.dragMode.includes('l')){ r.x = startRect.x+dx; r.w = startRect.w-dx; }
+      if(cropState.dragMode.includes('r')){ r.w = startRect.w+dx; }
+      if(cropState.dragMode.includes('t')){ r.y = startRect.y+dy; r.h = startRect.h-dy; }
+      if(cropState.dragMode.includes('b')){ r.h = startRect.h+dy; }
+      r.x = Math.max(0, r.x); r.y = Math.max(0, r.y);
+      r.w = Math.max(30, Math.min(r.w, cropState.dispW - r.x));
+      r.h = Math.max(30, Math.min(r.h, cropState.dispH - r.y));
+    }
+    cropState.rect = r;
+    drawCropOverlay();
+    ev.preventDefault();
+  }
+  function up(){ if(cropState) cropState.dragMode = null; }
+  canvas.addEventListener('mousedown', down);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  canvas.addEventListener('touchstart', down, {passive:false});
+  canvas.addEventListener('touchmove', move, {passive:false});
+  window.addEventListener('touchend', up);
+}
+setupCropHandlers();
+
+function cancelCrop(){
+  document.getElementById('cropPanel').classList.remove('show');
+  document.getElementById('ticketFile').value = '';
+  cropState = null;
+}
+
+function getCroppedBlob(){
+  return new Promise(resolve=>{
+    const s = cropState.dispW ? (cropState.naturalW / cropState.dispW) : 1;
+    const r = cropState.rect;
+    const sx = r.x*s, sy = r.y*s, sw = r.w*s, sh = r.h*s;
+    const targetW = Math.max(600, Math.min(1800, sw));
+    const scale = targetW / sw;
+    const out = document.createElement('canvas');
+    out.width = Math.round(sw*scale);
+    out.height = Math.round(sh*scale);
+    const ctx = out.getContext('2d');
+    ctx.drawImage(cropState.img, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    preprocessCanvas(out);
+    out.toBlob(blob=>resolve(blob), 'image/png');
+  });
+}
+
+async function runOcrOnCrop(){
+  document.getElementById('cropPanel').classList.remove('show');
+  setOcrStatus('Preparando imagen...', 5);
+  try{
+    const blob = await getCroppedBlob();
+    setOcrStatus('Leyendo ticket...', 10);
+    const worker = await Tesseract.createWorker('spa', 1, {
+      logger: m=>{
+        if(m.status === 'recognizing text'){
+          setOcrStatus('Reconociendo texto...', Math.round(m.progress*100));
+        } else if(m.status){
+          setOcrStatus(m.status + '...', Math.round((m.progress||0)*100));
+        }
+      }
+    });
+
+    // primer intento: bloque uniforme (bueno para una sola columna de importes)
+    await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    const pass1 = await worker.recognize(blob);
+    let candidates = collectCandidates(pass1.data.text);
+    let bestText = pass1.data.text;
+
+    // si salen pocas líneas, puede ser un ticket con columnas (Precio + Total):
+    // se reintenta con modo automático y se combinan los resultados sin duplicar
+    if(candidates.length < 3){
+      setOcrStatus('Pocas líneas detectadas, probando otro modo...', 55);
+      await worker.setParameters({ tessedit_pageseg_mode: '3' });
+      const pass2 = await worker.recognize(blob);
+      const candidates2 = collectCandidates(pass2.data.text);
+      const seen = new Set(candidates.map(c => c.name.toLowerCase()+'|'+c.price.toFixed(2)));
+      candidates2.forEach(c=>{
+        const key = c.name.toLowerCase()+'|'+c.price.toFixed(2);
+        if(!seen.has(key)){ candidates.push(c); seen.add(key); }
+      });
+      if(pass2.data.text.length > bestText.length) bestText = pass2.data.text;
+    }
+
+    await worker.terminate();
+    pendingDetectedTotal = extractTicketTotal(bestText);
+    setOcrStatus('Listo — revisa antes de usar', 100);
+    showReview(candidates);
+  }catch(err){
+    setOcrStatus('No se pudo leer la foto, prueba a añadir las filas a mano.', 0);
+    showReview([]);
+  }
+  document.getElementById('ticketFile').value = '';
+}
+
+function collectCandidates(rawText){
+  const lines = preprocessLines(rawText || '');
+  const out = [];
+  lines.forEach(l=>{
+    const item = parseLineToItem(l);
+    if(item) out.push(item);
+  });
+  return out;
+}
+
+document.getElementById('ticketFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  document.getElementById('reviewPanel').classList.remove('show');
+  document.getElementById('ocrStatus').classList.remove('show');
+  openCropper(file);
+});
+
+let reviewRows = [];
+
+function showReview(candidates){
+  reviewRows = candidates.length ? candidates : [{name:'', uds:1, price:0}];
+  renderReview();
+  document.getElementById('reviewPanel').classList.add('show');
+}
+
+function renderReview(){
+  const cont = document.getElementById('reviewRows');
+  cont.innerHTML = '';
+  reviewRows.forEach((r, i)=>{
+    const row = document.createElement('div');
+    row.className = 'review-row';
+    row.innerHTML = `
+      <input type="number" min="1" value="${r.uds}" onchange="reviewRows[${i}].uds=parseInt(this.value)||1">
+      <input type="text" value="${r.name.replace(/"/g,'&quot;')}" placeholder="Producto" onchange="reviewRows[${i}].name=this.value">
+      <input type="number" class="price" step="0.01" min="0" value="${r.price}" onchange="reviewRows[${i}].price=parseFloat(this.value)||0">
+      <button class="rm-row" onclick="removeReviewRow(${i})">✕</button>
+    `;
+    cont.appendChild(row);
+  });
+}
+
+function addReviewRow(){
+  reviewRows.push({name:'', uds:1, price:0});
+  renderReview();
+}
+function removeReviewRow(i){
+  reviewRows.splice(i,1);
+  renderReview();
+}
+function cancelReview(){
+  document.getElementById('reviewPanel').classList.remove('show');
+  document.getElementById('ocrStatus').classList.remove('show');
+  document.getElementById('ticketFile').value = '';
+}
+function confirmReview(){
+  const clean = reviewRows
+    .map(r=>({name:(r.name||'').trim(), uds: r.uds>0?r.uds:1, price: r.price>0?r.price:0}))
+    .filter(r=>r.name && r.price>0);
+  if(clean.length === 0){ return; }
+  ITEMS = clean;
+  units = ITEMS.map(it => new Array(it.uds).fill(null));
+  document.getElementById('reviewPanel').classList.remove('show');
+  document.getElementById('ocrStatus').classList.remove('show');
+  document.getElementById('ticketFile').value = '';
+  document.getElementById('ticketMeta').textContent = 'Ticket escaneado · ' + ITEMS.length + ' líneas';
+  if(pendingDetectedTotal){
+    document.getElementById('checkTotal').value = pendingDetectedTotal.toFixed(2);
+    pendingDetectedTotal = null;
+  }
+  renderAll();
+}
+
+/* ---------- descuento ---------- */
+function onDtoChange(){
+  const v = parseFloat(document.getElementById('dtoPct').value);
+  DISCOUNT = (isNaN(v) ? 0 : v) / 100;
+  renderAll();
+}
+
+/* ---------- personas ---------- */
+function addPerson(){
+  const input = document.getElementById('newPersonName');
+  const name = input.value.trim();
+  if(!name) return;
+  const color = COLORS[(nextPersonId-1) % COLORS.length];
+  const p = {id: nextPersonId++, name, color};
+  people.push(p);
+  if(activePersonId === null) activePersonId = p.id;
+  input.value = '';
+  renderAll();
+}
+
+function removePerson(id){
+  people = people.filter(p=>p.id!==id);
+  units = units.map(arr => arr.map(pid => pid===id ? null : pid));
+  if(activePersonId === id) activePersonId = people.length ? people[0].id : null;
+  renderAll();
+}
+
+function selectPerson(id){
+  activePersonId = id;
+  renderAll();
+}
+
+function fillNextUnit(itemIdx){
+  if(activePersonId === null) return;
+  const arr = units[itemIdx];
+  const emptyIdx = arr.indexOf(null);
+  if(emptyIdx === -1) return;
+  arr[emptyIdx] = activePersonId;
+  renderAll();
+}
+
+function fillNextUnitShared(itemIdx, ev){
+  if(ev) ev.stopPropagation();
+  const arr = units[itemIdx];
+  const emptyIdx = arr.indexOf(null);
+  if(emptyIdx === -1) return;
+  arr[emptyIdx] = 'ALL';
+  renderAll();
+}
+
+function clearUnit(itemIdx, unitIdx, ev){
+  ev.stopPropagation();
+  units[itemIdx][unitIdx] = null;
+  renderAll();
+}
+
+/* ---------- editar / reiniciar ---------- */
+function startEdit(idx, ev){
+  if(ev) ev.stopPropagation();
+  editingIdx = idx;
+  renderItems();
+}
+function cancelEdit(){
+  editingIdx = null;
+  renderItems();
+}
+function saveEdit(idx){
+  const nameInput = document.getElementById('edit-name-'+idx);
+  const udsInput = document.getElementById('edit-uds-'+idx);
+  const priceInput = document.getElementById('edit-price-'+idx);
+  const name = (nameInput.value || '').trim();
+  const uds = Math.max(1, parseInt(udsInput.value, 10) || 1);
+  const price = Math.max(0, parseFloat(priceInput.value) || 0);
+  if(!name) return;
+  ITEMS[idx] = {name, uds, price};
+  // conserva las asignaciones que caben en el nuevo nº de unidades
+  const old = units[idx];
+  const fresh = new Array(uds).fill(null);
+  for(let i=0; i<Math.min(old.length, uds); i++) fresh[i] = old[i];
+  units[idx] = fresh;
+  editingIdx = null;
+  renderAll();
+}
+function deleteItem(idx, ev){
+  if(ev) ev.stopPropagation();
+  ITEMS.splice(idx,1);
+  units.splice(idx,1);
+  editingIdx = null;
+  renderAll();
+}
+function resetAll(){
+  if(!confirm('Esto borra comensales, productos y todo lo asignado. ¿Reiniciar?')) return;
+  ITEMS = [];
+  units = [];
+  editingIdx = null;
+  people = [];
+  nextPersonId = 1;
+  activePersonId = null;
+  DISCOUNT = 0.10;
+  document.getElementById('dtoPct').value = 10;
+  document.getElementById('ticketMeta').textContent = 'Sin ticket cargado';
+  document.getElementById('ticketFile').value = '';
+  document.getElementById('reviewPanel').classList.remove('show');
+  document.getElementById('ocrStatus').classList.remove('show');
+  document.getElementById('checkTotal').value = '';
+  document.getElementById('totalMatchNote').textContent = '';
+  pendingDetectedTotal = null;
+  renderAll();
+}
+
+function fmt(n){
+  return n.toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+}
+
+function renderPeople(){
+  const row = document.getElementById('peopleRow');
+  row.innerHTML = '';
+  people.forEach(p=>{
+    const chip = document.createElement('div');
+    chip.className = 'person-chip' + (p.id===activePersonId ? ' active' : '');
+    chip.onclick = ()=>selectPerson(p.id);
+    chip.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.name}<button class="rm" onclick="event.stopPropagation();removePerson(${p.id})">✕</button>`;
+    row.appendChild(chip);
+  });
+  const hint = document.getElementById('activeHint');
+  if(people.length === 0){
+    hint.innerHTML = 'Añade comensales para empezar.';
+  } else {
+    const p = people.find(x=>x.id===activePersonId);
+    hint.innerHTML = p ? `Asignando a: <b>${p.name}</b> — toca un producto` : 'Selecciona un comensal.';
+  }
+}
+
+function renderItems(){
+  const list = document.getElementById('itemsList');
+  list.innerHTML = '';
+  if(ITEMS.length === 0){
+    list.innerHTML = '<div class="empty-state">No hay productos. Escanea un ticket o añade filas manuales.</div>';
+    return;
+  }
+  ITEMS.forEach((item, idx)=>{
+    const wrap = document.createElement('div');
+
+    if(editingIdx === idx){
+      wrap.className = 'item';
+      wrap.innerHTML = `
+        <div class="edit-form">
+          <input type="number" id="edit-uds-${idx}" min="1" value="${item.uds}">
+          <input type="text" id="edit-name-${idx}" value="${item.name.replace(/"/g,'&quot;')}">
+          <input type="number" class="price" id="edit-price-${idx}" step="0.01" min="0" value="${item.price}">
+        </div>
+        <div class="edit-form" style="margin-top:6px;">
+          <button class="edit-save" onclick="saveEdit(${idx})">Guardar</button>
+          <button class="edit-cancel" onclick="cancelEdit()">Cancelar</button>
+          <button class="edit-cancel" style="color:var(--red-dark);margin-left:auto;" onclick="deleteItem(${idx})">Eliminar</button>
+        </div>
+      `;
+      list.appendChild(wrap);
+      return;
+    }
+
+    const arr = units[idx];
+    const remaining = arr.filter(v=>v===null).length;
+    const complete = remaining === 0;
+
+    wrap.className = 'item' + (complete ? ' complete' : '');
+
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    row.onclick = ()=>fillNextUnit(idx);
+    row.innerHTML = `
+      <div class="item-name"><span class="uds">${item.uds}×</span>${item.name}</div>
+      <div style="display:flex;align-items:center;gap:6px;flex:none;">
+        <span class="item-price">${fmt(item.price)}</span>
+      </div>
+    `;
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '✎';
+    editBtn.title = 'Editar producto';
+    editBtn.onclick = (ev)=>startEdit(idx, ev);
+    row.querySelector('div[style]').appendChild(editBtn);
+    wrap.appendChild(row);
+
+    const unitsRow = document.createElement('div');
+    unitsRow.className = 'units-row';
+
+    arr.forEach((pid, uIdx)=>{
+      const dot = document.createElement('div');
+      const person = (pid !== null && pid !== 'ALL') ? people.find(p=>p.id===pid) : null;
+      const isAll = pid === 'ALL';
+      dot.className = 'unit-dot' + (person ? '' : (isAll ? ' all' : ' empty'));
+      if(person){
+        dot.style.background = person.color;
+        dot.style.borderColor = person.color;
+        dot.title = person.name;
+        dot.onclick = (ev)=>clearUnit(idx, uIdx, ev);
+      } else if(isAll){
+        dot.title = 'Para todos';
+        dot.onclick = (ev)=>clearUnit(idx, uIdx, ev);
+      } else {
+        dot.title = 'Sin asignar — toca para asignar al comensal activo';
+        dot.onclick = (ev)=>{ ev.stopPropagation(); fillNextUnit(idx); };
+      }
+      unitsRow.appendChild(dot);
+    });
+    const tag = document.createElement('span');
+    if(complete){
+      tag.className = 'complete-tag';
+      tag.textContent = '✓ repartido';
+    } else {
+      tag.className = 'remaining-tag';
+      tag.textContent = remaining + ' sin asignar';
+    }
+    unitsRow.appendChild(tag);
+
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'share-btn';
+    shareBtn.textContent = '÷ 1 para todos';
+    shareBtn.style.marginLeft = 'auto';
+    shareBtn.disabled = remaining === 0;
+    shareBtn.onclick = (ev)=>fillNextUnitShared(idx, ev);
+    unitsRow.appendChild(shareBtn);
+
+    wrap.appendChild(unitsRow);
+    list.appendChild(wrap);
+  });
+}
+
+function renderSummary(){
+  const before = ITEMS.reduce((s,i)=>s+i.price,0);
+  const dto = before * DISCOUNT;
+  const total = before - dto;
+  document.getElementById('sumBefore').textContent = fmt(before);
+  document.getElementById('sumDto').textContent = '-' + fmt(dto);
+  document.getElementById('sumTotal').textContent = fmt(total);
+
+  const checkInput = document.getElementById('checkTotal');
+  const note = document.getElementById('totalMatchNote');
+  const checkVal = parseFloat(checkInput.value);
+  if(!isNaN(checkVal) && checkVal > 0){
+    const diff = total - checkVal;
+    if(Math.abs(diff) < 0.02){
+      note.style.color = 'var(--green)';
+      note.textContent = '✓ coincide con el ticket';
+    } else if(diff > 0){
+      note.style.color = 'var(--red-dark)';
+      note.textContent = '⚠ te sobran ' + fmt(diff) + ' — revisa si has puesto algo de más';
+    } else {
+      note.style.color = 'var(--red-dark)';
+      note.textContent = '⚠ faltan ' + fmt(-diff) + ' — probablemente algún producto sin escanear';
+    }
+  } else {
+    note.textContent = '';
+  }
+}
+
+function renderPerPerson(){
+  const cont = document.getElementById('perPerson');
+  cont.innerHTML = '';
+  if(people.length === 0){
+    cont.innerHTML = `<div style="font-size:12px;color:var(--ink-soft)">Añade comensales para ver el reparto.</div>`;
+    return;
+  }
+  const totals = {};
+  people.forEach(p => totals[p.id] = 0);
+  let unassignedTotal = 0;
+
+  ITEMS.forEach((item, idx)=>{
+    const netPrice = item.price * (1 - DISCOUNT);
+    const netUnitPrice = netPrice / item.uds;
+    units[idx].forEach(pid=>{
+      if(pid === null){
+        unassignedTotal += netUnitPrice;
+      } else if(pid === 'ALL'){
+        if(people.length === 0){ unassignedTotal += netUnitPrice; return; }
+        const share = netUnitPrice / people.length;
+        people.forEach(p => totals[p.id] += share);
+      } else if(totals[pid] !== undefined){
+        totals[pid] += netUnitPrice;
+      }
+    });
+  });
+
+  people.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'pp-row';
+    row.innerHTML = `
+      <span class="pp-name"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
+      <span class="pp-amount">${fmt(totals[p.id])}</span>
+    `;
+    cont.appendChild(row);
+  });
+
+  if(unassignedTotal > 0.001){
+    const row = document.createElement('div');
+    row.className = 'pp-row';
+    row.style.color = 'var(--red-dark)';
+    row.innerHTML = `<span class="pp-name">Sin asignar</span><span class="pp-amount">${fmt(unassignedTotal)}</span>`;
+    cont.appendChild(row);
+  }
+}
+
+function renderAll(){
+  renderPeople();
+  renderItems();
+  renderSummary();
+  renderPerPerson();
+}
+
+document.getElementById('newPersonName').addEventListener('keydown', e=>{
+  if(e.key === 'Enter') addPerson();
+});
+
+renderAll();
+</script>
+</body>
+</html>

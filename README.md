@@ -65,6 +65,11 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
+Este único contenedor sirve **tanto la API de OCR como el propio frontend**:
+abre `http://<ip-del-servidor>:8010/` en el navegador y carga la app
+completa, ya apuntando a sí misma para el OCR (sin tener que rellenar
+ninguna URL a mano, sin problemas de CORS entre orígenes distintos).
+
 La primera vez descarga los modelos de detección/reconocimiento/orientación
 de PaddleOCR (unos pocos MB, mucho menos que Donut). Cuando en los logs
 aparezca `Uvicorn running on http://0.0.0.0:8000`, el servicio está listo en

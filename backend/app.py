@@ -1,8 +1,10 @@
 import io
 import re
+from pathlib import Path
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from PIL import Image
 import numpy as np
 from paddleocr import PaddleOCR
@@ -17,6 +19,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+async def root():
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"status": "ok", "note": "frontend no incluido en esta imagen"}
+
 
 
 # 'es' cubre el alfabeto latino (español incluido) en los modelos de PaddleOCR.

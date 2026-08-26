@@ -1100,6 +1100,13 @@ document.getElementById('newPersonName').addEventListener('keydown', e=>{
   if(e.key === 'Enter') addPerson();
 });
 
+// si esta página la sirve el propio backend (http://tu-servidor:8010/), usa
+// ese mismo origen para el OCR en vez de la IP fija — así no hay que tocar
+// nada al desplegarlo en otra máquina o dominio
+if(location.protocol.startsWith('http')){
+  document.getElementById('backendUrl').value = location.origin + '/ocr';
+}
+
 renderAll();
 </script>
 </body>

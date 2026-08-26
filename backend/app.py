@@ -7,8 +7,20 @@ from paddleocr import PaddleOCR
 
 app = FastAPI(title="Ticket OCR (PaddleOCR)")
 
-# 'es' cubre el alfabeto latino (español incluido) en los modelos de PaddleOCR
-ocr_engine = PaddleOCR(use_angle_cls=True, lang="es", show_log=False)
+# 'es' cubre el alfabeto latino (español incluido) en los modelos de PaddleOCR.
+# det_limit_side_len sube el límite de resolución interno del detector: por
+# defecto PaddleOCR reescala la imagen a ~960px de lado antes de detectar el
+# texto, lo que en fotos de móvil de alta resolución aplasta tanto las líneas
+# de un ticket térmico que dos renglones vecinos acaban tocándose y el
+# detector los funde en un solo bloque. Con un límite más alto conserva
+# resolución suficiente para separarlos.
+ocr_engine = PaddleOCR(
+    use_angle_cls=True,
+    lang="es",
+    show_log=False,
+    det_limit_side_len=2500,
+    det_db_unclip_ratio=1.6,
+)
 
 
 def group_into_lines(pairs, y_tol_ratio=0.5):
